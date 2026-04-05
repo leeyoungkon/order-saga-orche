@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Saga Monitor</title>
+  <style>
+    :root {
+      --bg: #f7f4ee;
+      --panel: #fffaf2;
+      --ink: #1d242b;
+      --accent: #006d77;
+      --accent-soft: #83c5be;
+      --danger: #bb3e03;
+      --line: #ded7cb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 10% 10%, #ffe8d6 0, transparent 35%),
+                  radial-gradient(circle at 90% 90%, #d8f3dc 0, transparent 30%),
+                  var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "Noto Sans KR", sans-serif;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    @media (min-width: 920px) {
+      .container {
+        grid-template-columns: 360px 1fr;
+      }
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+      letter-spacing: 0.5px;
+    }
+
+    .sub {
+      margin: 0 0 18px;
+      color: #495057;
+      font-size: 14px;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid #c7c0b4;
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 14px;
+      background: #fff;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      background: #00545c;
+    }
+
+    .status {
+      margin-top: 12px;
+      min-height: 20px;
+      font-size: 13px;
+      color: #3a3a3a;
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .event-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .event-table th,
+    .event-table td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 10px 8px;
+      vertical-align: top;
+    }
+
+    .event-table th {
+      background: #f0ece4;
+      position: sticky;
+      top: 0;
+    }
+
+    .scroll {
+      max-height: 70vh;
+      overflow: auto;
+    }
+
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #0e4a4f;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .stock-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .stock-row input {
+      flex: 1;
+    }
+
+    .btn-stock {
+      flex-shrink: 0;
+      background: var(--accent-soft);
+      color: #0e4a4f;
+      padding: 11px 12px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .btn-stock:hover {
+      background: #60b0aa;
+      transform: translateY(-1px);
+    }
+
+    .stock-result {
+      margin-top: 6px;
+      font-size: 13px;
+      min-height: 20px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: #f0ece4;
+      display: none;
+    }
+
+    .stock-result.visible {
+      display: block;
+    }
+
+    .stock-result.low {
+      background: #fde8db;
+      color: var(--danger);
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <section class="card">
+    <h1>Order Saga</h1>
+    <p class="sub">주문 정보를 웹에서 등록하면 MySQL에 저장됩니다.</p>
+
+    <form id="orderForm">
+      <div>
+        <label for="productId">상품 ID</label>
+        <div class="stock-row">
+          <input id="productId" name="productId" placeholder="P-1001" required>
+          <button type="button" class="btn-stock" id="checkStockBtn">재고 확인</button>
+        </div>
+        <div id="stockResult" class="stock-result"></div>
+      </div>
+      <div>
+        <label for="quantity">수량</label>
+        <input id="quantity" name="quantity" type="number" min="1" value="1" required>
+      </div>
+      <div>
+        <label for="amount">금액</label>
+        <input id="amount" name="amount" type="number" min="0" value="1000" required>
+      </div>
+      <button type="submit">주문 생성</button>
+    </form>
+
+    <div id="status" class="status"></div>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top:0;">이벤트 로그</h2>
+    <p class="sub">Kafka로 들어온 이벤트/주문 서비스 이벤트를 표시합니다. (5초 자동 갱신)</p>
+    <div class="scroll">
+      <table class="event-table">
+        <thead>
+        <tr>
+          <th>시간</th>
+          <th>소스</th>
+          <th>이벤트</th>
+          <th>주문ID</th>
+          <th>비고</th>
+        </tr>
+        </thead>
+        <tbody id="eventBody">
+        <tr><td colspan="5">이벤트를 불러오는 중...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+  const form = document.getElementById('orderForm');
+  const statusBox = document.getElementById('status');
+  const eventBody = document.getElementById('eventBody');
+  const checkStockBtn = document.getElementById('checkStockBtn');
+  const stockResult = document.getElementById('stockResult');
+
+  function setStatus(msg, isError = false) {
+    statusBox.textContent = msg;
+    statusBox.className = isError ? 'status error' : 'status';
+  }
+
+  async function loadEvents() {
+    try {
+      const res = await fetch('/orders/events');
+      if (!res.ok) {
+        throw new Error('이벤트 조회 실패: ' + res.status);
+      }
+      const events = await res.json();
+      if (!events.length) {
+        eventBody.innerHTML = '<tr><td colspan="5">아직 이벤트가 없습니다.</td></tr>';
+        return;
+      }
+
+      eventBody.innerHTML = events.map((e) => {
+        const createdAt = e.createdAt ? new Date(e.createdAt).toLocaleString() : '-';
+        const reason = e.reason ? e.reason : '';
+        return `
+          <tr>
+            <td>${createdAt}</td>
+            <td><span class="badge">${e.source || '-'}</span></td>
+            <td>${e.eventType || '-'}</td>
+            <td>${e.orderId || '-'}</td>
+            <td>${reason}</td>
+          </tr>
+        `;
+      }).join('');
+    } catch (err) {
+      eventBody.innerHTML = `<tr><td colspan="5">${err.message}</td></tr>`;
+    }
+  }
+
+  form.addEventListener('submit', async (evt) => {
+    evt.preventDefault();
+    const payload = {
+      productId: form.productId.value,
+      quantity: Number(form.quantity.value),
+      amount: Number(form.amount.value)
+    };
+
+    try {
+      const res = await fetch('/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        throw new Error('주문 생성 실패: ' + res.status);
+      }
+      const order = await res.json();
+      setStatus('주문 생성 완료: ' + order.orderId);
+      form.reset();
+      form.quantity.value = 1;
+      form.amount.value = 1000;
+      await loadEvents();
+    } catch (err) {
+      setStatus(err.message, true);
+    }
+  });
+
+  loadEvents();
+  setInterval(loadEvents, 5000);
+
+  checkStockBtn.addEventListener('click', async () => {
+    const productId = form.productId.value.trim();
+    if (!productId) {
+      stockResult.textContent = '상품 ID를 먼저 입력하세요.';
+      stockResult.className = 'stock-result visible low';
+      return;
+    }
+    checkStockBtn.disabled = true;
+    checkStockBtn.textContent = '조회 중...';
+    try {
+      const res = await fetch(`/orders/inventory/${encodeURIComponent(productId)}`);
+      if (!res.ok) throw new Error('재고 조회 실패: ' + res.status);
+      const data = await res.json();
+      const qty = data.quantity;
+      stockResult.textContent = `현재 재고: ${qty}개`;
+      stockResult.className = 'stock-result visible' + (qty <= 5 ? ' low' : '');
+    } catch (err) {
+      stockResult.textContent = err.message;
+      stockResult.className = 'stock-result visible low';
+    } finally {
+      checkStockBtn.disabled = false;
+      checkStockBtn.textContent = '재고 확인';
+    }
+  });
+</script>
+</body>
+</html>
