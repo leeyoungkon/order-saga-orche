@@ -1,36 +1,42 @@
 package com.example.ordersaga;
 
-import lombok.RequiredArgsConstructor;
+import com.example.ordersaga.Order;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Collection;
 import java.util.List;
 
 @RestController
 @RequestMapping("/orders")
-@RequiredArgsConstructor
 public class OrderController {
 
-    private final OrderSagaService orderSagaService;
-    private final StockClient stockClient;
+    private final OrderService orderService;
+
+    public OrderController(OrderService orderService) {
+        this.orderService = orderService;
+    }
 
     @PostMapping
-    public Order create(@RequestBody CreateOrderRequest request) {
-        return orderSagaService.createOrder(request);
+    public Order create(@RequestBody OrderRequest request) {
+        return orderService.createOrder(request);
     }
 
     @GetMapping
-    public Collection<Order> list() {
-        return orderSagaService.findAll();
+    public List<Order> list() {
+        return orderService.listOrders();
+    }
+
+    @GetMapping("/{orderId}")
+    public Order get(@PathVariable String orderId) {
+        return orderService.getOrder(orderId);
     }
 
     @GetMapping("/events")
     public List<SagaEventLog> events() {
-        return orderSagaService.findAllEvents();
+        return orderService.listEvents();
     }
 
     @GetMapping("/inventory/{productId}")
-    public QuantityResponse getInventory(@PathVariable String productId) {
-        return stockClient.getQuantity(productId);
+    public InventoryResponse inventory(@PathVariable String productId) {
+        return orderService.getInventory(productId);
     }
 }

@@ -109,6 +109,37 @@
       color: var(--danger);
     }
 
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .stat {
+      background: #f0ece4;
+      border-radius: 14px;
+      padding: 14px;
+      border: 1px solid var(--line);
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #55616c;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+    }
+
     .event-table {
       width: 100%;
       border-collapse: collapse;
@@ -132,6 +163,10 @@
     .scroll {
       max-height: 70vh;
       overflow: auto;
+    }
+
+    .scroll.orders {
+      max-height: 280px;
     }
 
     .badge {
@@ -186,6 +221,36 @@
       background: #fde8db;
       color: var(--danger);
     }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #ebf5f4;
+      color: #0e4a4f;
+    }
+
+    .status-badge.failed {
+      background: #fde8db;
+      color: var(--danger);
+    }
+
+    .status-badge.completed {
+      background: #d8f3dc;
+      color: #245534;
+    }
+
+    .status-badge.pending {
+      background: #fff2cc;
+      color: #8a5a00;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+    }
   </style>
 </head>
 <body>
@@ -217,38 +282,129 @@
     <div id="status" class="status"></div>
   </section>
 
-  <section class="card">
-    <h2 style="margin-top:0;">이벤트 로그</h2>
-    <p class="sub">Kafka로 들어온 이벤트/주문 서비스 이벤트를 표시합니다. (5초 자동 갱신)</p>
-    <div class="scroll">
-      <table class="event-table">
-        <thead>
-        <tr>
-          <th>시간</th>
-          <th>소스</th>
-          <th>이벤트</th>
-          <th>주문ID</th>
-          <th>비고</th>
-        </tr>
-        </thead>
-        <tbody id="eventBody">
-        <tr><td colspan="5">이벤트를 불러오는 중...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+  <div class="stack">
+    <section class="card">
+      <h2>처리 현황</h2>
+      <p class="sub">최근 주문과 사가 상태를 함께 확인합니다. (5초 자동 갱신)</p>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">전체 주문</div>
+          <div class="stat-value" id="totalOrders">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">완료</div>
+          <div class="stat-value" id="completedOrders">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">진행 중</div>
+          <div class="stat-value" id="activeOrders">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">실패</div>
+          <div class="stat-value" id="failedOrders">0</div>
+        </div>
+      </div>
+      <div class="scroll orders">
+        <table class="event-table">
+          <thead>
+          <tr>
+            <th>주문ID</th>
+            <th>상품</th>
+            <th>수량</th>
+            <th>금액</th>
+            <th>상태</th>
+          </tr>
+          </thead>
+          <tbody id="orderBody">
+          <tr><td colspan="5">주문을 불러오는 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>이벤트 로그</h2>
+      <p class="sub">Kafka 이벤트와 주문 서비스 내부 상태 전환을 시간순으로 표시합니다.</p>
+      <div class="scroll">
+        <table class="event-table">
+          <thead>
+          <tr>
+            <th>시간</th>
+            <th>소스</th>
+            <th>토픽</th>
+            <th>이벤트</th>
+            <th>주문ID</th>
+            <th>상태</th>
+            <th>비고</th>
+          </tr>
+          </thead>
+          <tbody id="eventBody">
+          <tr><td colspan="7">이벤트를 불러오는 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </div>
 
 <script>
   const form = document.getElementById('orderForm');
   const statusBox = document.getElementById('status');
   const eventBody = document.getElementById('eventBody');
+  const orderBody = document.getElementById('orderBody');
   const checkStockBtn = document.getElementById('checkStockBtn');
   const stockResult = document.getElementById('stockResult');
+  const totalOrders = document.getElementById('totalOrders');
+  const completedOrders = document.getElementById('completedOrders');
+  const activeOrders = document.getElementById('activeOrders');
+  const failedOrders = document.getElementById('failedOrders');
 
   function setStatus(msg, isError = false) {
     statusBox.textContent = msg;
     statusBox.className = isError ? 'status error' : 'status';
+  }
+
+  function renderStatusBadge(status) {
+    const safeStatus = status || '-';
+    const lower = safeStatus.toLowerCase();
+    let tone = 'pending';
+    if (lower.includes('fail')) {
+      tone = 'failed';
+    } else if (lower.includes('complete')) {
+      tone = 'completed';
+    }
+    return `<span class="status-badge ${tone}">${safeStatus}</span>`;
+  }
+
+  async function loadOrders() {
+    try {
+      const res = await fetch('/orders');
+      if (!res.ok) {
+        throw new Error('주문 조회 실패: ' + res.status);
+      }
+      const orders = await res.json();
+      totalOrders.textContent = String(orders.length);
+      completedOrders.textContent = String(orders.filter((order) => order.status === 'COMPLETED').length);
+      failedOrders.textContent = String(orders.filter((order) => order.status === 'FAILED').length);
+      activeOrders.textContent = String(orders.filter((order) => !['COMPLETED', 'FAILED'].includes(order.status)).length);
+
+      if (!orders.length) {
+        orderBody.innerHTML = '<tr><td colspan="5">아직 생성된 주문이 없습니다.</td></tr>';
+        return;
+      }
+
+      orderBody.innerHTML = orders.map((order) => `
+        <tr>
+          <td>${order.orderId}</td>
+          <td>${order.productId}</td>
+          <td>${order.quantity}</td>
+          <td>${order.amount}</td>
+          <td>${renderStatusBadge(order.status)}</td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      orderBody.innerHTML = `<tr><td colspan="5">${err.message}</td></tr>`;
+    }
   }
 
   async function loadEvents() {
@@ -259,7 +415,7 @@
       }
       const events = await res.json();
       if (!events.length) {
-        eventBody.innerHTML = '<tr><td colspan="5">아직 이벤트가 없습니다.</td></tr>';
+        eventBody.innerHTML = '<tr><td colspan="7">아직 이벤트가 없습니다.</td></tr>';
         return;
       }
 
@@ -270,21 +426,27 @@
           <tr>
             <td>${createdAt}</td>
             <td><span class="badge">${e.source || '-'}</span></td>
+            <td>${e.topic || '-'}</td>
             <td>${e.eventType || '-'}</td>
             <td>${e.orderId || '-'}</td>
+            <td>${renderStatusBadge(e.orderStatus)}</td>
             <td>${reason}</td>
           </tr>
         `;
       }).join('');
     } catch (err) {
-      eventBody.innerHTML = `<tr><td colspan="5">${err.message}</td></tr>`;
+      eventBody.innerHTML = `<tr><td colspan="7">${err.message}</td></tr>`;
     }
+  }
+
+  async function refreshDashboard() {
+    await Promise.all([loadOrders(), loadEvents()]);
   }
 
   form.addEventListener('submit', async (evt) => {
     evt.preventDefault();
     const payload = {
-      productId: form.productId.value,
+      productId: form.productId.value.trim(),
       quantity: Number(form.quantity.value),
       amount: Number(form.amount.value)
     };
@@ -303,14 +465,14 @@
       form.reset();
       form.quantity.value = 1;
       form.amount.value = 1000;
-      await loadEvents();
+      await refreshDashboard();
     } catch (err) {
       setStatus(err.message, true);
     }
   });
 
-  loadEvents();
-  setInterval(loadEvents, 5000);
+  refreshDashboard();
+  setInterval(refreshDashboard, 5000);
 
   checkStockBtn.addEventListener('click', async () => {
     const productId = form.productId.value.trim();
